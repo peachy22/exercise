@@ -2,7 +2,7 @@
 title: "Predictive Machine Learning Project on Exercise Quality"
 author: "Stephan Pichardo"
 date: "3/14/2022"
-output: md_document
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
