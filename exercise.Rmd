@@ -1,0 +1,142 @@
+---
+title: "Predictive Machine Learning Project on Exercise Quality"
+author: "Stephan Pichardo"
+date: "3/14/2022"
+output: md_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Executive Summary
+
+This project is concerned with an array of data (Velloso et al.) related to on-body motion trackers as they recorded exercise enthusiasts performing basic dumbbell lifts. A professional trainer was present for each observation to give a grade to the form of each lift, with an 'A' meaning that no form mistakes were made. The intention here is to use training data to train a machine learning algorithm to recognize, based on the motion sensor readings, the grade that each observation would receive. Then, 20 observations for which no grade was given will have their grades predicted by the chosen algorithm. 
+
+The R code used for this analysis utilizes the caret and dplyr packages.
+
+```{r, echo=FALSE}
+library(caret)
+library(dplyr)
+```
+
+#### Data Acquisition and Preprocessing.
+
+The research that produced the original data came from the observation of young male subjects performing basic barbell exercises. The aim was to "define quality of execution" (Velloso et al.) based on on-body sensor readings. 
+
+```{r}
+# download and store training and testing data
+fileURL<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileURL,destfile="./training.csv",method="curl")
+training<-read.csv('training.csv')
+fileURL<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileURL,destfile="./testing.csv",method="curl")
+testing<-read.csv('testing.csv')
+```
+
+The training data includes a letter rating from A to E based on quality of form as observed by a professional trainer for the performance of that rep. 19,622 observations were recorded for the training set. The predicting data includes 20 observations featuring all the same data except for the rating- we will use the code developed here to predict the quality rating of those 20 observations based only on the sensor data provided. 
+
+```{r}
+dim(training)
+```
+
+There are 160 columns of data here, but many of them are largely NA. We preprocess the data frames and remove any columns that have irrelevant or negligible amounts of data.
+
+```{r}
+# preprocess data frames
+training$classe<-as.factor(training$classe)
+training_clean<-
+training %>%
+select_if(~ !any(is.na(.)))
+training_clean<-
+training_clean %>%
+select_if(~ !any(is.character(.)))
+training_clean<-training_clean[-(1:4)]
+
+predicting_clean<-
+testing %>%
+select_if(~ !any(is.na(.)))
+predicting_clean<-
+predicting_clean %>%
+select_if(~ !any(is.character(.)))
+predicting_clean<-predicting_clean[-(1:4)]
+predicting_clean<-predicting_clean[-53]
+
+dim(training_clean)
+dim(predicting_clean)
+```
+
+So, the data frames we are using for training contain 52 possible predictors and one outcome, which is the factor variable "classe". 
+
+```{r}
+# show possible predictors
+colnames(training_clean)
+```
+
+Prepare the data for training (70/30):
+
+```{r}
+# set random seed for replication
+set.seed(43022)
+
+# split the training data for testing data
+inTrain<-createDataPartition(training_clean$classe,p=0.7,list=FALSE,times=1)
+train<-training_clean[inTrain,]
+test<-training_clean[-inTrain,]
+
+# utilize 10-fold cross validation
+cvcontrol <- trainControl(method="cv", number = 10, allowParallel=TRUE, summaryFunction=mnLogLoss,classProbs=TRUE)
+```
+
+### Performance Evaluation: Bagging Algorithm
+
+```{r}
+# train with bagged decision trees on training_clean dataset
+bag <- train(classe~.,data=train,method="treebag",metric="logLoss",trControl=cvcontrol,importance=TRUE)
+print(bag)
+```
+The logloss score is exceedingly low for this model. Let's observe its accuracy on the test partition:
+```{r}
+# evaluate the performance on test data
+bag_testclass <-  predict(bag,newdata=test,type="raw")
+# create confusion matrix and plot with ggplot
+bag_cm<-confusionMatrix(bag_testclass, test$classe, dnn = c("Prediction", "Reference"))
+bag_cm_fr <- as.data.frame(round(bag_cm$table/rowSums(bag_cm$table),4))
+bag_cm_fr$Prediction <- factor(bag_cm_fr$Prediction, levels=rev(levels(bag_cm_fr$Prediction)))
+```
+
+
+```{r}
+ggplot(bag_cm_fr, aes(Reference,Prediction, fill= Freq)) +
+ geom_tile() + geom_text(aes(label=Freq)) +
+ scale_fill_steps(low="white",high="blue") +
+ labs(x = "Reference Class",y = "Predicted Class") +
+ scale_x_discrete(labels=c("A","B","C","D","E")) +
+ scale_y_discrete(labels=rev(c("A","B","C","D","E")))
+# give accuracy and Kappa evaluation metrics
+bag_cm$overall[c(1,2)]
+```
+
+The confusion matrix presents a picture of relatively low error rates. The biggest problem was the misclassification of 'B's as 'C's, which happened 0.96% of the time. The reported accuracy and kappa for the performance of the model on the test partition is exceedingly high. Along with the low logloss, this model is most probably appropriate to use on the prediction data. 
+
+### Conclusion: Predict the 20 Mystery Grades
+
+```{r}
+bag_predictclass<-predict(bag,newdata=predicting_clean,type="raw")
+pred<-data.frame(cbind(as.character(bag_predictclass)))
+colnames(pred)<-c("Predicted Class")
+pred
+```
+
+When these results were used on the final quiz portion of this assignment, as part of the Johns Hopkins Practical Machine Learning course on Coursera.com, they were 100% correct. 
+
+### Works Cited
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
+
+
+
+
+
